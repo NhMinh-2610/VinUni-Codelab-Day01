@@ -44,7 +44,7 @@
   2. Đăng nhập bằng tài khoản Google của bạn.
   3. Bấm vào nút **"Get API key"** (ở menu bên trái hoặc góc trên).
   4. Chọn **"Create API key"** và tạo khóa cho dự án mới hoặc dự án hiện có.
-  5. Sao chép API key đã tạo (nó sẽ có dạng bắt đầu bằng `AIzaSy...`).
+  5. Dùng nút sao chép để lấy toàn bộ API key đã tạo. Giữ nguyên key được cấp, không sửa tiền tố theo một chuỗi mẫu.
 
 * **OpenAI API Key (OPENAI_API_KEY):**
   1. Truy cập [OpenAI API Keys Platform](https://platform.openai.com/api-keys).
@@ -59,13 +59,25 @@
 
 ### 🔹 1.3 Thiết lập Biến môi trường trực tiếp (Environment Variables)
 
+**Cách đơn giản khi chỉ dùng Gemini:**
+
+```powershell
+python starter-code/template.py
+```
+
+Nếu chưa có key hoặc giá trị biến môi trường sai định dạng, chương trình sẽ hỏi `Paste Gemini API key (input hidden):`. Dán key thật tại lời nhắc này rồi nhấn Enter; nội dung nhập sẽ được ẩn trong terminal. Key được giữ trong phiên chạy, không được ghi vào file.
+
+Nếu Google trả lỗi `API_KEY_INVALID`, chương trình sẽ cho nhập key thay thế. Tạo key mới trong Google AI Studio, sao chép đầy đủ rồi dán vào lời nhắc. Sau đó nhập lại câu hỏi để gửi bằng key mới.
+
 Bạn có thể thiết lập biến môi trường trực tiếp từ terminal (áp dụng cho phiên làm việc hiện tại) bằng các lệnh sau:
 
 * **Windows (PowerShell):**
   ```powershell
-  $env:OPENAI_API_KEY="sk-proj-your-openai-key-here"
-  $env:GEMINI_API_KEY="AIzaSy-your-gemini-key-here"
+  $env:GEMINI_API_KEY = (Read-Host "Dan key Gemini that vao day roi nhan Enter").Trim()
   ```
+  Giữ nguyên dòng lệnh trên. Dán key thật sau khi terminal hiện lời nhắc, không thay nội dung trong `Read-Host` bằng key. Phải có đủ `()` sau `.Trim()`; viết `.Trim` sẽ lưu mô tả hàm vào biến môi trường thay vì key.
+
+  Nếu cần chạy so sánh GPT-4o, GPT-4o-mini và Gemini, đặt thêm `OPENAI_API_KEY` bằng key OpenAI thật. Một key OpenAI dùng cho cả hai model GPT trong bài.
 
 * **Windows (CMD):**
   ```cmd
@@ -78,6 +90,8 @@ Bạn có thể thiết lập biến môi trường trực tiếp từ terminal 
   export OPENAI_API_KEY="sk-proj-your-openai-key-here"
   export GEMINI_API_KEY="AIzaSy-your-gemini-key-here"
   ```
+
+Các chuỗi chứa `your-...-key-here` trong ví dụ CMD/Bash là giá trị mẫu, cần thay bằng key thật.
 
 > [!TIP]
 > Để tránh việc phải nhập lại lệnh thiết lập mỗi khi tắt terminal, bạn có thể tạo một file [.env](file:///j:/VinUniCodelab/VinUni_Codelab_Day01/.env) đặt ở thư mục gốc của project (sử dụng mẫu từ [.env.example](file:///j:/VinUniCodelab/VinUni_Codelab_Day01/.env.example)) và sử dụng thư viện `python-dotenv` để load tự động trong code.

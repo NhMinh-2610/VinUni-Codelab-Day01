@@ -9,10 +9,12 @@ All external API calls are mocked — no real API keys or internet connection re
 """
 
 import importlib.util
+import io
 import os
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 # Locate directories relative to this test file
@@ -107,6 +109,7 @@ class TestCallOpenAI(unittest.TestCase):
         self.assertEqual(usage["output_tokens"], 20)
 
 
+@patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
 class TestCallGemini(unittest.TestCase):
 
     @patch("google.genai.Client")
@@ -122,6 +125,64 @@ class TestCallGemini(unittest.TestCase):
         self.assertGreaterEqual(latency, 0.0)
         self.assertEqual(usage["input_tokens"], 12)
         self.assertEqual(usage["output_tokens"], 25)
+
+    @patch("google.genai.Client")
+    def test_preserves_original_api_error(self, MockGenAIClient):
+        error = RuntimeError("Original Gemini API error")
+        MockGenAIClient.return_value.models.generate_content.side_effect = error
+
+        with self.assertRaises(RuntimeError) as raised:
+            call_gemini("Hello")
+
+        self.assertIs(raised.exception, error)
+        MockGenAIClient.return_value.models.generate_content.assert_called_once()
+
+    @patch("google.genai.Client")
+    def test_missing_key_does_not_send_request(self, MockGenAIClient):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "GEMINI_API_KEY"):
+                call_gemini("Hello")
+
+        MockGenAIClient.assert_not_called()
+
+    @patch("google.genai.Client")
+    def test_rejects_bad_environment_values_before_sending(self, MockGenAIClient):
+        for value in (
+            "string Trim(Params char[] trimChars), string Trim()",
+            "AIzaSy-your-gemini-key-here",
+            "test key with spaces",
+            '"test-key-with-literal-quotes"',
+        ):
+            with self.subTest(value=value), patch.dict(os.environ, {"GEMINI_API_KEY": value}):
+                with self.assertRaises(ValueError) as raised:
+                    call_gemini("Hello")
+                self.assertNotIn(value, str(raised.exception))
+
+        MockGenAIClient.assert_not_called()
+
+
+class TestGeminiKeyConfiguration(unittest.TestCase):
+
+    def test_recovers_from_powershell_method_without_printing_key(self):
+        replacement = "AQ.synthetic-replacement-for-tests"
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "string Trim()"}, clear=True), \
+             patch.object(_m, "getpass", return_value=f"  {replacement}  ") as prompt, \
+             patch("sys.stdout", new_callable=io.StringIO) as output:
+            self.assertTrue(_m._configure_gemini_api_key())
+            self.assertEqual(os.environ["GEMINI_API_KEY"], replacement)
+
+        prompt.assert_called_once()
+        self.assertIn(".Trim()", output.getvalue())
+        self.assertNotIn(replacement, output.getvalue())
+
+    def test_cancelling_key_entry_does_not_configure_a_key(self):
+        with patch.dict(os.environ, {}, clear=True), \
+             patch.object(_m, "getpass", side_effect=EOFError), \
+             patch("sys.stdout", new_callable=io.StringIO) as output:
+            self.assertFalse(_m._configure_gemini_api_key())
+            self.assertNotIn("GEMINI_API_KEY", os.environ)
+
+        self.assertIn("cancelled", output.getvalue())
 
 
 class TestCallAnthropic(unittest.TestCase):
@@ -207,7 +268,7 @@ class TestBatchCompareAndFormat(unittest.TestCase):
 
     def test_batch_runs_and_formats_table(self):
         with patch.object(_m, "compare_models") as mock_comp:
-            def _get_mock():
+            def _get_mock(prompt):
                 return {
                     "gpt4o": {"response": "GPT-4o response content here", "latency": 0.5, "cost": 0.00045, "input_tokens": 10, "output_tokens": 20},
                     "gpt4o_mini": {"response": "GPT-4o-Mini response content here", "latency": 0.3, "cost": 0.0000135, "input_tokens": 10, "output_tokens": 20},
@@ -218,6 +279,8 @@ class TestBatchCompareAndFormat(unittest.TestCase):
             results = batch_compare(["Q1", "Q2"])
             self.assertEqual(len(results), 2)
             self.assertEqual(results[0]["prompt"], "Q1")
+            self.assertEqual(results[0]["gpt4o"]["response"], "GPT-4o response content here")
+            self.assertAlmostEqual(results[1]["gpt4o_mini"]["cost"], 0.0000135)
 
             table = format_comparison_table(results)
             self.assertIsInstance(table, str)
@@ -227,6 +290,7 @@ class TestBatchCompareAndFormat(unittest.TestCase):
             self.assertIn("Q1", table)
 
 
+@patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"})
 class TestStreamingChatbot(unittest.TestCase):
 
     @patch("builtins.input", side_effect=["quit"])
@@ -237,6 +301,59 @@ class TestStreamingChatbot(unittest.TestCase):
             streaming_chatbot()
         except SystemExit:
             pass
+
+    @patch("builtins.input", side_effect=["hello", "try again", "quit"])
+    @patch("google.genai.Client")
+    def test_reports_stream_error_and_discards_incomplete_turn(self, MockClient, mock_input):
+        def broken_stream():
+            yield SimpleNamespace(text="partial reply")
+            raise RuntimeError("Original streaming error")
+
+        stream = MockClient.return_value.models.generate_content_stream
+        stream.side_effect = [broken_stream(), [SimpleNamespace(text="recovered")]]
+        with patch("sys.stdout", new_callable=io.StringIO) as output:
+            streaming_chatbot()
+
+        self.assertIn("RuntimeError: Original streaming error", output.getvalue())
+        self.assertNotIn("google.generativeai", output.getvalue())
+        self.assertEqual(stream.call_count, 2)
+        second_contents = stream.call_args_list[1].kwargs["contents"]
+        self.assertEqual(len(second_contents), 1)
+        self.assertEqual(second_contents[0].parts[0].text, "try again")
+        MockClient.return_value.close.assert_called_once()
+
+    @patch("google.genai.Client")
+    def test_missing_key_does_not_create_client(self, MockClient):
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("sys.stdout", new_callable=io.StringIO) as output:
+            streaming_chatbot()
+
+        self.assertIn("GEMINI_API_KEY", output.getvalue())
+        MockClient.assert_not_called()
+
+    @patch("builtins.input", side_effect=["hello", "hello again", "quit"])
+    @patch("google.genai.Client")
+    def test_replaces_rejected_key_and_uses_new_client(self, MockClient, mock_input):
+        original_client = MagicMock()
+        replacement_client = MagicMock()
+        MockClient.side_effect = [original_client, replacement_client]
+        original_client.models.generate_content_stream.side_effect = RuntimeError("400 API_KEY_INVALID")
+        replacement_client.models.generate_content_stream.return_value = [SimpleNamespace(text="recovered")]
+        replacement_key = "AQ.synthetic-replacement-for-tests"
+
+        with patch.object(_m, "getpass", return_value=replacement_key) as prompt, \
+             patch("sys.stdout", new_callable=io.StringIO) as output:
+            streaming_chatbot()
+            self.assertEqual(os.environ["GEMINI_API_KEY"], replacement_key)
+
+        prompt.assert_called_once()
+        self.assertEqual(MockClient.call_args_list[1].kwargs["api_key"], replacement_key)
+        original_client.models.generate_content_stream.assert_called_once()
+        replacement_client.models.generate_content_stream.assert_called_once()
+        self.assertIn("recovered", output.getvalue())
+        self.assertNotIn(replacement_key, output.getvalue())
+        original_client.close.assert_called_once()
+        replacement_client.close.assert_called_once()
 
 
 if __name__ == "__main__":
