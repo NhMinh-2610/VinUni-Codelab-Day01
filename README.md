@@ -30,7 +30,7 @@
      source .venv/bin/activate
      ```
 
-3. **Cài đặt thư viện từ [requirements.txt](file:///j:/VinUniCodelab/VinUni_Codelab_Day01/requirements.txt):**
+3. **Cài đặt thư viện từ [requirements.txt](requirements.txt):**
    ```bash
    pip install -r requirements.txt
    ```
@@ -59,6 +59,22 @@
 
 ### 🔹 1.3 Thiết lập Biến môi trường trực tiếp (Environment Variables)
 
+**Dùng chatbot OpenAI thay cho Gemini (Windows CMD):**
+
+```cmd
+.venv\Scripts\python.exe starter-code\template.py --provider openai
+```
+
+Tạo khóa OpenAI riêng tại [OpenAI API Keys](https://platform.openai.com/api-keys). Khi chương trình hiện `Paste OpenAI API key (input hidden):`, dán khóa vào terminal rồi nhấn Enter. Nội dung nhập được ẩn; không gửi khóa vào chat. Nếu đã đặt `OPENAI_API_KEY` hợp lệ trong terminal, chương trình sẽ dùng biến đó.
+
+Chế độ này mặc định dùng `gpt-5.4-mini` và chỉ cần khóa OpenAI. Có thể chọn model khác mà project OpenAI của bạn có quyền dùng:
+
+```cmd
+.venv\Scripts\python.exe starter-code\template.py --provider openai --model gpt-5.4-mini
+```
+
+Bot hiển thị câu trả lời theo luồng và giữ ba lượt hội thoại hoàn tất gần nhất. Nhập `quit` hoặc `exit` để thoát. Chế độ này dùng [Responses API của OpenAI](https://developers.openai.com/api/docs/guides/streaming-responses); cần quyền truy cập API và quota/billing tương ứng. Nếu SDK cũ báo không có `responses`, chạy `python -m pip install -r requirements.txt` trong môi trường ảo.
+
 **Cách đơn giản khi chỉ dùng Gemini:**
 
 ```powershell
@@ -68,6 +84,26 @@ python starter-code/template.py
 Nếu chưa có key hoặc giá trị biến môi trường sai định dạng, chương trình sẽ hỏi `Paste Gemini API key (input hidden):`. Dán key thật tại lời nhắc này rồi nhấn Enter; nội dung nhập sẽ được ẩn trong terminal. Key được giữ trong phiên chạy, không được ghi vào file.
 
 Nếu Google trả lỗi `API_KEY_INVALID`, chương trình sẽ cho nhập key thay thế. Tạo key mới trong Google AI Studio, sao chép đầy đủ rồi dán vào lời nhắc. Sau đó nhập lại câu hỏi để gửi bằng key mới.
+
+Mặc định chương trình chỉ chạy chatbot Gemini. Để chạy thêm phần so sánh trực tiếp với OpenAI (tiêu thụ quota API), đặt `OPENAI_API_KEY` bằng khóa OpenAI riêng rồi chạy:
+
+```powershell
+python starter-code/template.py --compare
+```
+
+Khóa Gemini không dùng được với OpenAI. Nếu chỉ dùng Gemini và trước đó đã gán nhầm khóa vào `OPENAI_API_KEY`, có thể xóa biến đó trong phiên PowerShell hiện tại:
+
+```powershell
+Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue
+```
+
+Nếu dùng **CMD** (dòng nhắc `C:\...>`), hãy dùng `set`, vì `Remove-Item` chỉ có trong PowerShell (dòng nhắc `PS C:\...>`). Để xóa khóa Gemini trong phiên CMD và nhập lại qua lời nhắc ẩn:
+
+```cmd
+set "GEMINI_API_KEY="
+set "GOOGLE_API_KEY="
+python starter-code/template.py
+```
 
 Bạn có thể thiết lập biến môi trường trực tiếp từ terminal (áp dụng cho phiên làm việc hiện tại) bằng các lệnh sau:
 
@@ -94,7 +130,7 @@ Bạn có thể thiết lập biến môi trường trực tiếp từ terminal 
 Các chuỗi chứa `your-...-key-here` trong ví dụ CMD/Bash là giá trị mẫu, cần thay bằng key thật.
 
 > [!TIP]
-> Để tránh việc phải nhập lại lệnh thiết lập mỗi khi tắt terminal, bạn có thể tạo một file [.env](file:///j:/VinUniCodelab/VinUni_Codelab_Day01/.env) đặt ở thư mục gốc của project (sử dụng mẫu từ [.env.example](file:///j:/VinUniCodelab/VinUni_Codelab_Day01/.env.example)) và sử dụng thư viện `python-dotenv` để load tự động trong code.
+> Chương trình đọc biến môi trường của terminal hoặc hỏi khóa qua lời nhắc ẩn; hiện không tự đọc file `.env`. Khóa nhập tại lời nhắc chỉ tồn tại trong tiến trình Python và không được ghi vào mã nguồn.
 
 ---
 
@@ -118,7 +154,7 @@ Các chuỗi chứa `your-...-key-here` trong ví dụ CMD/Bash là giá trị m
 * **SDK cần dùng:** `from openai import OpenAI`
 * **Cách khởi tạo:** `client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))`
 * **Hàm gọi:** `client.chat.completions.create(...)`
-* **Tham số:** 
+* **Tham số:**
   * `model`: chuỗi tên model (`gpt-4o` hoặc `gpt-4o-mini`).
   * `messages`: dạng danh sách hội thoại `[{"role": "user", "content": prompt}]`.
   * `temperature`, `top_p`, `max_tokens`.
@@ -128,7 +164,7 @@ Các chuỗi chứa `your-...-key-here` trong ví dụ CMD/Bash là giá trị m
   # call API
   latency = time.time() - start
   ```
-* **Lấy Token Usage:** 
+* **Lấy Token Usage:**
   ```python
   input_tokens = response.usage.prompt_tokens
   output_tokens = response.usage.completion_tokens
@@ -173,7 +209,7 @@ Streaming giúp tạo trải nghiệm người dùng mượt mà giống như Ch
   for chunk in response_stream:
       print(chunk.text, end="", flush=True)
   ```
-* **Lịch sử hội thoại (History Management):** 
+* **Lịch sử hội thoại (History Management):**
   Giới hạn lịch sử ở 3 lượt hội thoại gần nhất (tương đương 6 tin nhắn).
   ```python
   # Cắt lịch sử nếu quá dài
@@ -182,7 +218,38 @@ Streaming giúp tạo trải nghiệm người dùng mượt mà giống như Ch
 
 ---
 
-## 🆘 4. Giải quyết các lỗi thường gặp (Troubleshooting)
+## ✅ 4. Kiểm tra và nộp bài
+
+Bản hoàn chỉnh đáp ứng năm task và ba bonus trong đề gốc:
+
+- [x] Task 1: OpenAI Chat Completions, tham số tùy chọn, latency và token usage.
+- [x] Task 2: Google GenAI, Gemini 2.5 Flash, cấu hình sampling và usage metadata.
+- [x] Task 3: Anthropic Claude, ghép các khối văn bản và lấy token usage.
+- [x] Task 4: So sánh GPT-4o, GPT-4o-mini và Gemini 2.5 Flash; tính chi phí theo bảng giá cố định của bài lab.
+- [x] Task 5: Chatbot Gemini streaming, lưu ba lượt hội thoại gần nhất, thoát bằng `quit`/`exit`.
+- [x] Bonus A: Retry với exponential backoff và giới hạn số lần thử.
+- [x] Bonus B: Batch theo thứ tự prompt; tiếp tục sau prompt bị lỗi.
+- [x] Bonus C: Bảng Markdown, response tối đa 50 ký tự, xử lý dấu phân cách và xuống dòng.
+
+Các tham số công khai của tám hàm theo đề bài được giữ nguyên. `solution/solution.py` là bản nộp theo hướng dẫn gốc; `solution-code/solution.py` giữ bản tương thích với đường dẫn chấm bài trước đây. Hai file này phải giống hệt `starter-code/template.py`. Sau khi sửa mã, đồng bộ và kiểm tra:
+
+```cmd
+python scripts\sync_solutions.py
+python scripts\sync_solutions.py --check
+python -m pytest tests -v
+```
+
+Bộ test mặc định chạy trên `solution/solution.py`. Để kiểm tra bản khác, đặt `LAB_SOLUTION_PATH` trong CMD:
+
+```cmd
+set "LAB_SOLUTION_PATH=starter-code/template.py"
+python -m pytest tests -v
+set "LAB_SOLUTION_PATH="
+```
+
+Test dùng API giả lập nên không cần khóa thật, không gọi mạng và không tiêu thụ quota. GitHub Actions chạy toàn bộ test trên Python 3.11 và 3.13 cho cả ba đường dẫn. Tên model và bảng giá trong phần so sánh được giữ theo đề để chấm bài; giá trị `cost` là phép tính theo bảng của bài lab, không phải báo cáo thanh toán hiện tại. Nếu cả phép so sánh bị lỗi, batch trả hàng lỗi với metric bằng 0 để biểu thị dữ liệu không có; các request đã hoàn tất trước lỗi vẫn có thể bị nhà cung cấp tính phí.
+
+## 🆘 5. Giải quyết các lỗi thường gặp (Troubleshooting)
 
 ### 🔴 Lỗi `ModuleNotFoundError: No module named 'google'`
 * **Nguyên nhân:** Chưa cài đặt thư viện Google GenAI SDK.
@@ -196,8 +263,15 @@ Streaming giúp tạo trải nghiệm người dùng mượt mà giống như Ch
   * **Windows (CMD):** `set GEMINI_API_KEY=AIzaSy...`
 
 ### 🔴 Lỗi `RateLimitError`
-* **Nguyên nhân:** Bạn gửi quá nhiều request trong một khoảng thời gian ngắn trên tài khoản Free.
-* **Cách khắc phục:** Triển khai **Task Bonus A (`retry_with_backoff`)** để tự động thử lại sau vài giây!
+* **Giới hạn ngắn hạn (RPM/TPM):** Bạn gửi quá nhiều request hoặc token trong một phút. Chờ theo thời gian retry mà API trả về; có thể dùng **Task Bonus A (`retry_with_backoff`)** với số lần thử hữu hạn.
+* **Hết quota ngày (`429 RESOURCE_EXHAUSTED`, `RequestsPerDay` hoặc `requests per day`):** Chờ đến thời gian retry được báo, hoặc kiểm tra quota và billing của project tại [Google AI Studio](https://ai.dev/rate-limit). Thử lại sau vài giây không khôi phục quota ngày. Chatbot sẽ giải thích lỗi và kết thúc phiên để tránh gửi thêm request.
+* Quota Gemini áp dụng **theo project**, không theo API key. Tạo key mới trong cùng project không đặt lại quota. Hạn mức thay đổi theo model và tier; xem [tài liệu rate limits của Google](https://ai.google.dev/gemini-api/docs/rate-limits).
+* Banner của chatbot hiển thị giá trị `GEMINI_MODEL` thực tế trong `starter-code/template.py`; tên trong tài liệu bài lab có thể khác nếu bạn đã đổi model.
+
+### 🔴 Lỗi `503 UNAVAILABLE` / `This model is currently experiencing high demand`
+* Google đang thiếu năng lực phục vụ tạm thời cho model. Không cần đổi API key chỉ vì lỗi này; xem [hướng dẫn lỗi Gemini của Google](https://ai.google.dev/gemini-api/docs/generate-content/api-errors).
+* Chatbot thử lại tối đa hai lần, sau 2 và 4 giây, khi chưa in nội dung trả lời. Nếu vẫn lỗi, chờ thêm rồi nhập lại câu hỏi tại `You:`.
+* Nếu stream đã in một phần câu trả lời rồi bị lỗi, chương trình không tự gửi lại để tránh phát lại nội dung. Lượt bị lỗi không được thêm vào lịch sử hội thoại.
 
 ---
 > **💡 Vibe Coding Tip:** Hãy tận dụng Cursor hoặc Copilot bằng cách cung cấp cho nó ngữ cảnh của file `student_guide.md` và `template.py` để viết code nháp nhanh chóng, sau đó kiểm tra và hoàn thiện bằng tay!

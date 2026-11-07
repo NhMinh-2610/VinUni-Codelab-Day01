@@ -1,0 +1,39 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Python ${{ matrix.python-version }} / ${{ matrix.solution-path }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+        solution-path:
+          - starter-code/template.py
+          - solution/solution.py
+          - solution-code/solution.py
+    env:
+      LAB_SOLUTION_PATH: ${{ matrix.solution-path }}
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check submitted solution copies
+        run: python scripts/sync_solutions.py --check
+      - name: Run offline tests
+        run: python -m pytest tests -v
