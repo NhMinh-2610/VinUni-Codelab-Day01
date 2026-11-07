@@ -33,6 +33,8 @@ OPENAI_MODEL = "gpt-4o"
 OPENAI_MINI_MODEL = "gpt-4o-mini"
 OPENAI_CHAT_MODEL = OPENAI_MINI_MODEL
 GEMINI_MODEL = "gemini-2.5-flash"
+# Keep the exercise model above unchanged; new accounts need a newer live chat model.
+GEMINI_CHAT_MODEL = "gemini-3.8-flash"
 ANTHROPIC_MODEL = "claude-3-5-haiku"
 
 
@@ -314,6 +316,23 @@ def compare_models(prompt: str) -> dict:
 # ---------------------------------------------------------------------------
 # Task 5 — Streaming chatbot with Gemini 2.5 (Focus Model)
 # ---------------------------------------------------------------------------
+def _get_gemini_chat_model() -> str:
+    """Allow a live model override without changing the lab comparison or its prices."""
+    return os.getenv("GEMINI_CHAT_MODEL", "").strip() or GEMINI_CHAT_MODEL
+
+
+def _create_gemini_chat_client(api_key: str):
+    """Keep SDK retries from multiplying the chat's bounded application retries."""
+    from google import genai
+    from google.genai import types
+
+    options = {}
+    retry_type = getattr(types, "HttpRetryOptions", None)
+    if retry_type is not None:
+        options["http_options"] = types.HttpOptions(retry_options=retry_type(attempts=1))
+    return genai.Client(api_key=api_key, **options)
+
+
 def _is_gemini_unavailable(error: Exception) -> bool:
     """Recognize temporary model overload without treating quota errors as retryable."""
     message = str(error).upper()
@@ -324,13 +343,50 @@ def _is_gemini_unavailable(error: Exception) -> bool:
     )
 
 
-def _stream_gemini_with_retry(client: Any, contents: list):
-    """Retry overload at most twice, only before any reply text reaches the user."""
+def _is_gemini_connection_error(error: Exception) -> bool:
+    """Recognize interrupted transport connections, including wrapped WinError 10053."""
+    from httpx import NetworkError, RemoteProtocolError, TimeoutException
+
+    network_errors = (NetworkError, RemoteProtocolError, TimeoutException, ConnectionError, TimeoutError)
+    # Recent GenAI SDKs can use httpx2; earlier installations only have httpx.
+    try:
+        from httpx2 import NetworkError as AlternateNetworkError
+        from httpx2 import RemoteProtocolError as AlternateProtocolError
+        from httpx2 import TimeoutException as AlternateTimeout
+    except ImportError:
+        pass
+    else:
+        network_errors += (AlternateNetworkError, AlternateProtocolError, AlternateTimeout)
+
+    # A server's HTTP error (e.g. 404 or 429) needs its own diagnosis, not a network retry.
+    if getattr(error, "code", None) is not None:
+        return False
+    seen = set()
+    current = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, network_errors):
+            return True
+        if getattr(current, "winerror", None) == 10053 or getattr(current, "errno", None) == 10053:
+            return True
+        if "[winerror 10053]" in str(current).lower():
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _is_gemini_model_unavailable(error: Exception) -> bool:
+    return getattr(error, "code", None) == 404 or str(error).upper().startswith("404 ")
+
+
+def _stream_gemini_with_retry(client: Any, contents: list, model: str | None = None):
+    """Retry overload/network errors twice, only before any reply text reaches the user."""
+    model = model or GEMINI_MODEL
     received_text = False
     for attempt in range(3):
         try:
             response_stream = client.models.generate_content_stream(
-                model=GEMINI_MODEL,
+                model=model,
                 contents=contents,
             )
             for chunk in response_stream:
@@ -339,11 +395,13 @@ def _stream_gemini_with_retry(client: Any, contents: list):
                 yield chunk
             return
         except Exception as error:
-            if not _is_gemini_unavailable(error) or received_text or attempt == 2:
+            connection_error = _is_gemini_connection_error(error)
+            if not (_is_gemini_unavailable(error) or connection_error) or received_text or attempt == 2:
                 raise
             delay = 2 * (2 ** attempt)
+            reason = "[Connection interrupted]" if connection_error else "[Gemini busy] Temporary 503 overload."
             print(
-                f"\n[Gemini busy] Temporary 503 overload. Retrying in {delay}s "
+                f"\n{reason} Retrying in {delay}s "
                 f"({attempt + 1}/2)...",
                 flush=True,
             )
@@ -352,7 +410,7 @@ def _stream_gemini_with_retry(client: Any, contents: list):
 
 def streaming_chatbot() -> None:
     """
-    Run an interactive streaming chatbot in the terminal using Gemini 2.5.
+    Run an interactive streaming chatbot using an available live Gemini model.
     Maintains the last 3 turns of conversation history for context.
     """
     try:
@@ -361,14 +419,14 @@ def streaming_chatbot() -> None:
         print(f"[Configuration error] {error}")
         return
 
-    from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key)
+    client = _create_gemini_chat_client(api_key)
+    chat_model = _get_gemini_chat_model()
 
     print("\n\033[94m==============================================")
     print("🤖 Vin Smart Future — Intelligent Chat Assistant")
-    print(f"Powered by Google {GEMINI_MODEL}")
+    print(f"Powered by Google {chat_model}")
     print("Type 'quit' or 'exit' to end the session.")
     print("==============================================\033[0m\n")
 
@@ -400,7 +458,7 @@ def streaming_chatbot() -> None:
                 )
                 for msg in messages_to_send
             ]
-            response_stream = _stream_gemini_with_retry(client, formatted_contents)
+            response_stream = _stream_gemini_with_retry(client, formatted_contents, model=chat_model)
             full_reply = ""
             for chunk in response_stream:
                 chunk_text = chunk.text or ""
@@ -421,6 +479,21 @@ def streaming_chatbot() -> None:
             break
         except Exception as e:
             print(f"\n\033[91m[Error Calling API] {type(e).__name__}: {e}\033[0m\n")
+            if _is_gemini_model_unavailable(e):
+                print(
+                    f"[Model unavailable] This project cannot use {chat_model}.\n"
+                    "For new accounts, run: python starter-code/template.py --model gemini-3.8-flash\n"
+                    "If that model is also unavailable, choose a model accessible to your project in AI Studio.\n"
+                    "Replacing an API key does not grant access to a restricted model."
+                )
+                break
+            if _is_gemini_connection_error(e):
+                print(
+                    "[Connection interrupted] The connection was aborted or timed out; this turn was not saved.\n"
+                    "Check your network, VPN/proxy and security software's HTTPS rules for Python.\n"
+                    "Try another network, then enter your question again."
+                )
+                continue
             if _is_gemini_unavailable(e):
                 print(
                     "[Gemini temporarily unavailable] The model is overloaded. "
@@ -434,7 +507,7 @@ def streaming_chatbot() -> None:
                 for marker in ("perday", "per_day", "per day", "requests per day")
             ):
                 print(
-                    f"[Daily quota exhausted] The project has reached its daily limit for {GEMINI_MODEL}.\n"
+                    f"[Daily quota exhausted] The project has reached its daily limit for {chat_model}.\n"
                     "Wait for the retry time reported above, or review the project's quota and billing.\n"
                     "Quota is per project, not per API key; another key in the same project will not reset it.\n"
                     "Check active limits: https://ai.dev/rate-limit\n"
@@ -446,7 +519,7 @@ def streaming_chatbot() -> None:
                 if not _configure_gemini_api_key(force_prompt=True):
                     break
                 client.close()
-                client = genai.Client(api_key=_get_gemini_api_key())
+                client = _create_gemini_chat_client(_get_gemini_api_key())
 
     client.close()
 
@@ -672,14 +745,16 @@ if __name__ == "__main__":
         "--provider", choices=("gemini", "openai"), default="gemini",
         help="Chatbot API provider (default: gemini).",
     )
-    parser.add_argument("--model", help="OpenAI chatbot model override (requires --provider openai).")
+    parser.add_argument("--model", help="Chatbot model override for the selected provider.")
     parser.add_argument(
         "--compare", action="store_true",
         help="Run the live OpenAI/Gemini comparison before chatting (uses API quota).",
     )
     args = parser.parse_args()
-    if args.model and args.provider != "openai":
-        parser.error("--model requires --provider openai")
+    if args.model is not None and not args.model.strip():
+        parser.error("--model must not be blank")
+    if args.provider == "gemini" and args.model:
+        os.environ["GEMINI_CHAT_MODEL"] = args.model.strip()
 
     print("=== Model Comparison Test ===")
     test_prompt = "Hãy giải thích sự khác biệt giữa temperature và top_p bằng tiếng Việt ngắn gọn trong 2 câu."
@@ -704,7 +779,11 @@ if __name__ == "__main__":
                 print(f"Response: {stats['response']}")
         except Exception as e:
             print(f"Skipping live API comparison test: {e}")
-            print("Set valid API keys to run model comparison.")
+            if _is_gemini_model_unavailable(e):
+                print("The lab comparison requires Gemini 2.5 Flash, which may be restricted for new accounts.")
+                print("The chatbot below can use Gemini 3.8 Flash; --model changes only the chatbot model.")
+            else:
+                print("Check provider credentials, API quota and network access before comparing again.")
 
     try:
         if args.provider == "openai":
@@ -713,7 +792,7 @@ if __name__ == "__main__":
             if _configure_openai_api_key():
                 streaming_openai_chatbot(model=model)
         else:
-            print(f"\n=== Starting {GEMINI_MODEL} Chatbot (type 'quit' to exit) ===")
+            print(f"\n=== Starting {_get_gemini_chat_model()} Chatbot (type 'quit' to exit) ===")
             if _configure_gemini_api_key():
                 streaming_chatbot()
     except Exception as e:
