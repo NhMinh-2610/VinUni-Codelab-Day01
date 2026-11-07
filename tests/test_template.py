@@ -8,16 +8,38 @@ Run from the 02-lab/ folder:
 All external API calls are mocked — no real API keys or internet connection required.
 """
 
+import importlib.util
 import io
 import os
+import sys
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from _support import load_target_module
+# Locate directories relative to this test file
+TESTS_DIR = Path(__file__).parent
+LAB_DIR = TESTS_DIR.parent
+
+# Resolve module paths
+SOLUTION_PATH = LAB_DIR / "solution-code" / "solution.py"
+TEMPLATE_PATH = LAB_DIR / "starter-code" / "template.py"
+
+def _load_module(path: Path, unique_name: str):
+    if not path.exists():
+        raise FileNotFoundError(f"Target file not found at: {path}")
+    spec = importlib.util.spec_from_file_location(unique_name, str(path))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[unique_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
 
 
-_m = load_target_module("lab_template")
+# Dynamically load the solution module if it exists (for grading), otherwise test the starter template
+if SOLUTION_PATH.exists():
+    _m = _load_module(SOLUTION_PATH, "solution")
+else:
+    _m = _load_module(TEMPLATE_PATH, "template")
 
 # Import target functions
 call_openai = getattr(_m, "call_openai")
@@ -70,7 +92,6 @@ def _make_anthropic_response(text: str = "Hello from Anthropic"):
 # ---------------------------------------------------------------------------
 # Test Cases
 # ---------------------------------------------------------------------------
-@patch.dict(os.environ, {"OPENAI_API_KEY": "sk-proj-synthetic-test"}, clear=True)
 class TestCallOpenAI(unittest.TestCase):
 
     @patch("openai.OpenAI")
@@ -164,7 +185,6 @@ class TestGeminiKeyConfiguration(unittest.TestCase):
         self.assertIn("cancelled", output.getvalue())
 
 
-@patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-synthetic-test"}, clear=True)
 class TestCallAnthropic(unittest.TestCase):
 
     @patch("anthropic.Anthropic")
@@ -187,7 +207,7 @@ class TestCompareModels(unittest.TestCase):
     def test_compare_models_evaluates_correct_costs(self):
         with patch.object(_m, "call_openai") as mock_openai, \
              patch.object(_m, "call_gemini") as mock_gemini:
-
+             
             # Setup mock returns
             mock_openai.side_effect = [
                 ("GPT-4o Response", 0.5, {"input_tokens": 10, "output_tokens": 20}),       # 1st call: gpt-4o
@@ -209,10 +229,10 @@ class TestCompareModels(unittest.TestCase):
             # Verify exact cost calculations
             # gpt-4o: (10 * 5.0 + 20 * 20.0) / 1,000,000 = 0.00045
             self.assertAlmostEqual(result["gpt4o"]["cost"], 0.00045, places=8)
-
+            
             # gpt-4o-mini: (10 * 0.150 + 20 * 0.600) / 1,000,000 = 0.0000135
             self.assertAlmostEqual(result["gpt4o_mini"]["cost"], 0.0000135, places=8)
-
+            
             # gemini-2.5-flash: (10 * 0.075 + 20 * 0.300) / 1,000,000 = 0.00000675
             self.assertAlmostEqual(result["gemini_flash"]["cost"], 0.00000675, places=8)
 

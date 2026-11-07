@@ -1,27 +1,3 @@
 .env
 .venv/
 __pycache__/
-
-# Local credentials and virtual environments
-.env.*
-!.env.example
-!.env.sample
-venv/
-
-# Python bytecode, test caches, and coverage output
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.tox/
-.nox/
-.coverage
-.coverage.*
-coverage.xml
-htmlcov/
-
-# Local verification output
-/tmp/
-/.tmp/
-/test-results/
-/pytest*.log

@@ -31,7 +31,7 @@ PRICING_1M_TOKENS = {
 # Standard Model Identifiers
 OPENAI_MODEL = "gpt-4o"
 OPENAI_MINI_MODEL = "gpt-4o-mini"
-OPENAI_CHAT_MODEL = "gpt-5.4-mini"
+OPENAI_CHAT_MODEL = OPENAI_MINI_MODEL
 GEMINI_MODEL = "gemini-2.5-flash"
 ANTHROPIC_MODEL = "claude-3-5-haiku"
 
@@ -487,30 +487,23 @@ def streaming_openai_chatbot(model: str = OPENAI_CHAT_MODEL) -> None:
                 full_reply = ""
                 completed = False
                 print("OpenAI: ", end="", flush=True)
-                with client.responses.create(
+                with client.chat.completions.create(
                     model=model,
-                    input=messages,
+                    messages=messages,
                     stream=True,
-                    store=False,
-                    max_output_tokens=1024,
+                    max_tokens=1024,
                 ) as response_stream:
-                    for event in response_stream:
-                        if event.type in ("response.output_text.delta", "response.refusal.delta"):
-                            text = event.delta or ""
-                            print(text, end="", flush=True)
-                            full_reply += text
-                        elif event.type == "response.completed":
+                    for chunk in response_stream:
+                        if not chunk.choices:
+                            continue
+                        choice = chunk.choices[0]
+                        text = choice.delta.content or getattr(choice.delta, "refusal", None) or ""
+                        print(text, end="", flush=True)
+                        full_reply += text
+                        if choice.finish_reason is not None:
                             completed = True
-                        elif event.type in ("error", "response.failed", "response.incomplete"):
-                            response = getattr(event, "response", None)
-                            detail = (
-                                getattr(event, "message", None)
-                                or getattr(getattr(response, "error", None), "message", None)
-                                or getattr(getattr(response, "incomplete_details", None), "reason", None)
-                            )
-                            raise RuntimeError(f"OpenAI {event.type}: {detail or 'Response did not complete.'}")
-                if not completed:
-                    raise RuntimeError("OpenAI stream ended before response.completed; this turn was not saved.")
+                if not completed or not full_reply:
+                    raise RuntimeError("OpenAI stream ended without a complete text reply; this turn was not saved.")
                 print("\n")
                 history.extend([
                     {"role": "user", "content": user_input},
